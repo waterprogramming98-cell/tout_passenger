@@ -1,56 +1,208 @@
-# Tout (passenger app) iOS build workflow.
-# Supply Apple signing/API credentials and optional map key in Codemagic UI.
 workflows:
   ios-release:
     name: Tout iOS Release
-    max_build_duration: 90
+
+    max_build_duration: 120
     instance_type: mac_mini_m2
+
+    integrations:
+      app_store_connect: Codemagic K-Waiter
 
     environment:
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: $BUNDLE_ID
+        bundle_identifier: com.toutroutes.passenger
+
       vars:
-        XCODE_PROJECT: ios/ToutApp.xcodeproj
-        XCODE_SCHEME: ToutApp
-        BUNDLE_ID: com.toutroutes.passenger
+        BUNDLE_ID: "com.toutroutes.passenger"
+        XCODE_PROJECT: "ios/ToutApp.xcodeproj"
+        XCODE_WORKSPACE: "ios/ToutApp.xcworkspace"
+        XCODE_SCHEME: "ToutApp"
+
       node: 18.20.0
       xcode: latest
       cocoapods: default
 
     scripts:
-      - name: Install JavaScript dependencies
-        script: npm install --legacy-peer-deps
 
-      - name: Install CocoaPods
-        script: cd ios && pod install --repo-update
-
-      - name: Configure optional Google Maps key
+      # ==========================================
+      # Install JavaScript dependencies
+      # ==========================================
+      - name: Install npm dependencies
         script: |
+          set -e
+
+          npm install --legacy-peer-deps
+
+
+      # ==========================================
+      # Clean old iOS Pods
+      # ==========================================
+      - name: Clean iOS Pods
+        script: |
+          set -e
+
+          cd "$CM_BUILD_DIR/ios"
+
+          rm -rf Pods
+          rm -f Podfile.lock
+
+          pod deintegrate || true
+
+
+      # ==========================================
+      # Install CocoaPods
+      # ==========================================
+      - name: Install CocoaPods dependencies
+        script: |
+          set -e
+
+          cd "$CM_BUILD_DIR/ios"
+
+          echo "=========================================="
+          echo "Installing CocoaPods"
+          echo "=========================================="
+
+          pod install --repo-update
+
+          echo ""
+          echo "=========================================="
+          echo "CocoaPods installed successfully"
+          echo "=========================================="
+
+
+      # ==========================================
+      # Configure Google Maps API Key
+      # ==========================================
+      - name: Configure Google Maps API Key
+        script: |
+          set -e
+
           if [ -n "${GOOGLE_MAPS_API_KEY:-}" ]; then
-            /usr/libexec/PlistBuddy -c "Set :GMSApiKey $GOOGLE_MAPS_API_KEY" ios/ToutApp/Info.plist || \
-            /usr/libexec/PlistBuddy -c "Add :GMSApiKey string $GOOGLE_MAPS_API_KEY" ios/ToutApp/Info.plist
+
+            echo "Google Maps API key found."
+
+            /usr/libexec/PlistBuddy \
+              -c "Set :GMSApiKey $GOOGLE_MAPS_API_KEY" \
+              "$CM_BUILD_DIR/ios/ToutApp/Info.plist" || \
+            /usr/libexec/PlistBuddy \
+              -c "Add :GMSApiKey string $GOOGLE_MAPS_API_KEY" \
+              "$CM_BUILD_DIR/ios/ToutApp/Info.plist"
+
+          else
+
+            echo "GOOGLE_MAPS_API_KEY is not configured."
+            echo "Continuing without changing Info.plist."
+
           fi
 
+
+      # ==========================================
+      # Set Build Number
+      # ==========================================
       - name: Set build number
         script: |
-          LATEST=$(app-store-connect get-latest-build-number "$BUNDLE_ID" 2>/dev/null || echo "0")
-          agvtool new-version -all $((LATEST + 1))
+          set -e
 
-      - name: Build signed IPA
+          cd "$CM_BUILD_DIR"
+
+          LATEST=$(
+            app-store-connect get-latest-build-number \
+              "$BUNDLE_ID" \
+              2>/dev/null || echo "0"
+          )
+
+          echo "Latest App Store build number: $LATEST"
+
+          NEW_BUILD=$((LATEST + 1))
+
+          echo "New build number: $NEW_BUILD"
+
+          cd "$CM_BUILD_DIR/ios"
+
+          agvtool new-version -all "$NEW_BUILD"
+
+
+      # ==========================================
+      # Set up iOS code signing
+      # ==========================================
+      - name: Set up iOS code signing
         script: |
+          set -e
+
+          xcode-project use-profiles \
+            --project "$CM_BUILD_DIR/ios/ToutApp.xcodeproj"
+
+
+      # ==========================================
+      # Verify iOS signing
+      # ==========================================
+      - name: Verify iOS signing
+        script: |
+          set -e
+
+          echo "=========================================="
+          echo "BUNDLE ID"
+          echo "=========================================="
+
+          echo "$BUNDLE_ID"
+
+          echo ""
+          echo "=========================================="
+          echo "SIGNING SETTINGS"
+          echo "=========================================="
+
+          xcodebuild \
+            -project "$CM_BUILD_DIR/ios/ToutApp.xcodeproj" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -showBuildSettings | \
+            grep -E \
+            "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE|CODE_SIGN_IDENTITY" \
+            || true
+
+
+      # ==========================================
+      # Verify Xcode Workspace
+      # ==========================================
+      - name: Verify Xcode workspace
+        script: |
+          set -e
+
+          if [ ! -d "$CM_BUILD_DIR/ios/ToutApp.xcworkspace" ]; then
+            echo "ERROR: ToutApp.xcworkspace was not found."
+            exit 1
+          fi
+
+          echo "ToutApp.xcworkspace exists."
+
+
+      # ==========================================
+      # Build iOS Release IPA
+      # ==========================================
+      - name: Build iOS release IPA
+        script: |
+          set -e
+
+          cd "$CM_BUILD_DIR"
+
           xcode-project build-ipa \
-            --project "$XCODE_PROJECT" \
+            --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME" \
             --config Release
+
 
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
 
     publishing:
       app_store_connect:
         auth: integration
+
         submit_to_testflight: true
+
         submit_to_app_store: false
