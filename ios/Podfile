@@ -8,8 +8,8 @@ def node_require(script)
         {paths: [process.argv[1]]},
       )",
       __dir__
-    ]
-  ).strip
+    ].join("\n")
+  )
 end
 
 node_require('react-native/scripts/react_native_pods.rb')
@@ -58,7 +58,7 @@ setup_permissions([
 # Main Target
 # ============================================================
 
-target 'ToutRoutesApp' do
+target 'ToutApp' do
 
   config = use_native_modules!
 
@@ -234,7 +234,7 @@ target 'ToutRoutesApp' do
       unless content.include?(marker)
 
         patched = content.gsub(
-          /^#\s*define FMT_USE_CONSTEVAL 1$/,
+          /^\s*#\s*define FMT_USE_CONSTEVAL 1$/,
           "#{marker}\n#  define FMT_USE_CONSTEVAL 0"
         )
 
@@ -281,7 +281,7 @@ target 'ToutRoutesApp' do
 
       user_project.native_targets.each do |target|
 
-        next unless target.name == 'ToutRoutesApp'
+        next unless target.name == 'ToutApp'
 
         target.build_configurations.each do |build_config|
 
