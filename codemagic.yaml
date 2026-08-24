@@ -100,7 +100,7 @@ workflows:
       # THIS IS THE ONLY NEW ICON STEP.
       #
       # Source:
-      # assets/logo.png
+      # logo.png
       #
       # Codemagic creates:
       # ios/ToutRoutesApp/Images.xcassets/AppIcon.appiconset
@@ -118,7 +118,7 @@ workflows:
 
           cd "$CM_BUILD_DIR"
 
-          SOURCE_ICON="$CM_BUILD_DIR/assets/logo.png"
+          SOURCE_ICON="$CM_BUILD_DIR/logo.png"
 
           APPICON_DIR="$CM_BUILD_DIR/ios/ToutRoutesApp/Images.xcassets/AppIcon.appiconset"
 
@@ -131,10 +131,10 @@ workflows:
           if [ ! -f "$SOURCE_ICON" ]; then
             echo ""
             echo "ERROR:"
-            echo "assets/logo.png was not found."
+            echo "logo.png was not found."
             echo ""
             echo "Current assets directory:"
-            find "$CM_BUILD_DIR/assets" -maxdepth 2 -type f -print || true
+            find "$CM_BUILD_DIR" -maxdepth 2 -name "logo.png" -print || true
             exit 1
           fi
 
