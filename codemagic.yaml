@@ -1,6 +1,6 @@
 workflows:
   ios-release:
-    name: Tout iOS Release
+    name: CapTout iOS Release
 
     max_build_duration: 120
     instance_type: mac_mini_m2
@@ -15,44 +15,59 @@ workflows:
 
       vars:
         BUNDLE_ID: "com.toutroutes.passenger"
-        XCODE_PROJECT: "ios/ToutApp.xcodeproj"
-        XCODE_WORKSPACE: "ios/ToutApp.xcworkspace"
-        XCODE_SCHEME: "ToutApp"
+        XCODE_PROJECT: "ios/ToutRoutesApp.xcodeproj"
+        XCODE_WORKSPACE: "ios/ToutRoutesApp.xcworkspace"
+        XCODE_SCHEME: "ToutRoutesApp"
 
-      node: 18.20.0
+      node: 20.19.4
       xcode: latest
       cocoapods: default
 
     scripts:
 
-      # ==========================================
-      # Install JavaScript dependencies
-      # ==========================================
+      # ==========================================================
+      # 1. Install npm dependencies
+      # ==========================================================
+
       - name: Install npm dependencies
         script: |
           set -e
 
+          echo "=========================================="
+          echo "Installing npm dependencies"
+          echo "=========================================="
+
           npm install --legacy-peer-deps
 
 
-      # ==========================================
-      # Clean old iOS Pods
-      # ==========================================
-      - name: Clean iOS Pods
+      # ==========================================================
+      # 2. Clean iOS build files
+      # ==========================================================
+
+      - name: Clean iOS build files
         script: |
           set -e
+
+          echo "=========================================="
+          echo "Cleaning iOS build files"
+          echo "=========================================="
 
           cd "$CM_BUILD_DIR/ios"
 
           rm -rf Pods
-          rm -f Podfile.lock
+          rm -rf build
 
-          pod deintegrate || true
+          echo "iOS build files cleaned."
 
 
-      # ==========================================
-      # Install CocoaPods
-      # ==========================================
+      # ==========================================================
+      # 3. Install CocoaPods dependencies
+      #
+      # IMPORTANT:
+      # Do NOT modify Podfile here.
+      # The Podfile from the repository is used as-is.
+      # ==========================================================
+
       - name: Install CocoaPods dependencies
         script: |
           set -e
@@ -63,80 +78,477 @@ workflows:
           echo "Installing CocoaPods"
           echo "=========================================="
 
+          pod deintegrate || true
+
           pod install --repo-update
 
           echo ""
           echo "=========================================="
-          echo "CocoaPods installed successfully"
+          echo "CocoaPods installation completed"
           echo "=========================================="
 
+          test -d Pods
+          test -f Podfile.lock
 
-      # ==========================================
-      # Configure Google Maps API Key
-      # ==========================================
-      - name: Configure Google Maps API Key
+          echo "Pods directory exists."
+          echo "Podfile.lock exists."
+
+
+      # ==========================================================
+      # 4. Generate iOS App Icon
+      #
+      # THIS IS THE ONLY NEW ICON STEP.
+      #
+      # Source:
+      # assets/logo.png
+      #
+      # Codemagic creates:
+      # ios/ToutRoutesApp/Images.xcassets/AppIcon.appiconset
+      #
+      # It also adds CFBundleIconName = AppIcon
+      # ==========================================================
+
+      - name: Generate iOS App Icon
         script: |
           set -e
 
-          if [ -n "${GOOGLE_MAPS_API_KEY:-}" ]; then
+          echo "=========================================="
+          echo "Generating iOS App Icon"
+          echo "=========================================="
 
-            echo "Google Maps API key found."
+          cd "$CM_BUILD_DIR"
 
-            /usr/libexec/PlistBuddy \
-              -c "Set :GMSApiKey $GOOGLE_MAPS_API_KEY" \
-              "$CM_BUILD_DIR/ios/ToutApp/Info.plist" || \
-            /usr/libexec/PlistBuddy \
-              -c "Add :GMSApiKey string $GOOGLE_MAPS_API_KEY" \
-              "$CM_BUILD_DIR/ios/ToutApp/Info.plist"
+          SOURCE_ICON="$CM_BUILD_DIR/assets/logo.png"
 
-          else
+          APPICON_DIR="$CM_BUILD_DIR/ios/ToutRoutesApp/Images.xcassets/AppIcon.appiconset"
 
-            echo "GOOGLE_MAPS_API_KEY is not configured."
-            echo "Continuing without changing Info.plist."
+          INFO_PLIST="$CM_BUILD_DIR/ios/ToutRoutesApp/Info.plist"
+
+          echo ""
+          echo "Source icon:"
+          echo "$SOURCE_ICON"
+
+          if [ ! -f "$SOURCE_ICON" ]; then
+            echo ""
+            echo "ERROR:"
+            echo "assets/logo.png was not found."
+            echo ""
+            echo "Current assets directory:"
+            find "$CM_BUILD_DIR/assets" -maxdepth 2 -type f -print || true
+            exit 1
+          fi
+
+          echo ""
+          echo "Source icon found."
+
+          # --------------------------------------------------------
+          # Create AppIcon directory
+          # --------------------------------------------------------
+
+          rm -rf "$APPICON_DIR"
+
+          mkdir -p "$APPICON_DIR"
+
+          echo ""
+          echo "Created:"
+          echo "$APPICON_DIR"
+
+
+          # --------------------------------------------------------
+          # Create all required iPhone / iPad icon sizes
+          # --------------------------------------------------------
+
+          sips -z 40 40 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-20@2x.png"
+
+          sips -z 60 60 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-20@3x.png"
+
+          sips -z 58 58 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-29@2x.png"
+
+          sips -z 87 87 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-29@3x.png"
+
+          sips -z 80 80 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-40@2x.png"
+
+          sips -z 120 120 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-40@3x.png"
+
+          sips -z 120 120 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-60@2x.png"
+
+          sips -z 180 180 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-60@3x.png"
+
+          # iPad
+          sips -z 20 20 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-20.png"
+
+          sips -z 40 40 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-20@2x-ipad.png"
+
+          sips -z 29 29 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-29.png"
+
+          sips -z 58 58 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-29@2x-ipad.png"
+
+          sips -z 40 40 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-40.png"
+
+          sips -z 80 80 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-40@2x-ipad.png"
+
+          sips -z 76 76 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-76.png"
+
+          sips -z 152 152 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-76@2x.png"
+
+          # iPad Pro
+          sips -z 167 167 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-83.5@2x.png"
+
+
+          # --------------------------------------------------------
+          # App Store 1024x1024
+          # --------------------------------------------------------
+
+          sips -z 1024 1024 \
+            "$SOURCE_ICON" \
+            --out "$APPICON_DIR/AppIcon-1024.png"
+
+
+          # --------------------------------------------------------
+          # Make sure all icons are PNG
+          # --------------------------------------------------------
+
+          echo ""
+          echo "Generated icon files:"
+
+          ls -lh "$APPICON_DIR"
+
+
+          # --------------------------------------------------------
+          # Create Contents.json
+          # --------------------------------------------------------
+
+          cat > "$APPICON_DIR/Contents.json" <<'JSON'
+          {
+            "images": [
+              {
+                "filename": "AppIcon-20.png",
+                "idiom": "ipad",
+                "scale": "1x",
+                "size": "20x20"
+              },
+              {
+                "filename": "AppIcon-20@2x-ipad.png",
+                "idiom": "ipad",
+                "scale": "2x",
+                "size": "20x20"
+              },
+              {
+                "filename": "AppIcon-20@2x.png",
+                "idiom": "iphone",
+                "scale": "2x",
+                "size": "20x20"
+              },
+              {
+                "filename": "AppIcon-20@3x.png",
+                "idiom": "iphone",
+                "scale": "3x",
+                "size": "20x20"
+              },
+              {
+                "filename": "AppIcon-29.png",
+                "idiom": "ipad",
+                "scale": "1x",
+                "size": "29x29"
+              },
+              {
+                "filename": "AppIcon-29@2x-ipad.png",
+                "idiom": "ipad",
+                "scale": "2x",
+                "size": "29x29"
+              },
+              {
+                "filename": "AppIcon-29@2x.png",
+                "idiom": "iphone",
+                "scale": "2x",
+                "size": "29x29"
+              },
+              {
+                "filename": "AppIcon-29@3x.png",
+                "idiom": "iphone",
+                "scale": "3x",
+                "size": "29x29"
+              },
+              {
+                "filename": "AppIcon-40.png",
+                "idiom": "ipad",
+                "scale": "1x",
+                "size": "40x40"
+              },
+              {
+                "filename": "AppIcon-40@2x-ipad.png",
+                "idiom": "ipad",
+                "scale": "2x",
+                "size": "40x40"
+              },
+              {
+                "filename": "AppIcon-40@2x.png",
+                "idiom": "iphone",
+                "scale": "2x",
+                "size": "40x40"
+              },
+              {
+                "filename": "AppIcon-40@3x.png",
+                "idiom": "iphone",
+                "scale": "3x",
+                "size": "40x40"
+              },
+              {
+                "filename": "AppIcon-60@2x.png",
+                "idiom": "iphone",
+                "scale": "2x",
+                "size": "60x60"
+              },
+              {
+                "filename": "AppIcon-60@3x.png",
+                "idiom": "iphone",
+                "scale": "3x",
+                "size": "60x60"
+              },
+              {
+                "filename": "AppIcon-76.png",
+                "idiom": "ipad",
+                "scale": "1x",
+                "size": "76x76"
+              },
+              {
+                "filename": "AppIcon-76@2x.png",
+                "idiom": "ipad",
+                "scale": "2x",
+                "size": "76x76"
+              },
+              {
+                "filename": "AppIcon-83.5@2x.png",
+                "idiom": "ipad",
+                "scale": "2x",
+                "size": "83.5x83.5"
+              },
+              {
+                "filename": "AppIcon-1024.png",
+                "idiom": "ios-marketing",
+                "scale": "1x",
+                "size": "1024x1024"
+              }
+            ],
+            "info": {
+              "author": "xcode",
+              "version": 1
+            }
+          }
+          JSON
+
+
+          # --------------------------------------------------------
+          # Add CFBundleIconName to Info.plist
+          # --------------------------------------------------------
+
+          echo ""
+          echo "Updating Info.plist..."
+
+          /usr/libexec/PlistBuddy \
+            -c "Delete :CFBundleIconName" \
+            "$INFO_PLIST" 2>/dev/null || true
+
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleIconName string AppIcon" \
+            "$INFO_PLIST"
+
+
+          # --------------------------------------------------------
+          # Set AppIcon asset catalog name
+          # --------------------------------------------------------
+
+          PROJECT_FILE="$CM_BUILD_DIR/ios/ToutRoutesApp.xcodeproj/project.pbxproj"
+
+          if [ -f "$PROJECT_FILE" ]; then
+
+            python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("ios/ToutRoutesApp.xcodeproj/project.pbxproj")
+
+          text = path.read_text()
+
+          # Add ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+          # to every build configuration that does not already define it.
+
+          pattern = r'(\n\s*buildSettings = \{\n)'
+
+          def add_setting(match):
+              block_start = match.group(1)
+
+              return (
+                  block_start +
+                  '\t\t\t\tASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;\n'
+              )
+
+          if "ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;" not in text:
+              text = re.sub(pattern, add_setting, text)
+              path.write_text(text)
+
+          print("ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon configured.")
+          PY
 
           fi
 
 
-      # ==========================================
-      # Set Build Number
-      # ==========================================
-      - name: Set build number
+          # --------------------------------------------------------
+          # Verify icon
+          # --------------------------------------------------------
+
+          echo ""
+          echo "=========================================="
+          echo "VERIFYING APP ICON"
+          echo "=========================================="
+
+          echo ""
+          echo "CFBundleIconName:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIconName" \
+            "$INFO_PLIST"
+
+          echo ""
+          echo "AppIcon directory:"
+          ls -lh "$APPICON_DIR"
+
+          echo ""
+          echo "Checking 120x120 required icon:"
+
+          sips -g pixelWidth -g pixelHeight \
+            "$APPICON_DIR/AppIcon-60@2x.png"
+
+          echo ""
+          echo "App Icon generation completed successfully."
+
+
+      # ==========================================================
+      # 5. Fix fmt compatibility
+      # ==========================================================
+
+      - name: Fix fmt compatibility
         script: |
           set -e
 
-          cd "$CM_BUILD_DIR"
+          FMT_BASE="$CM_BUILD_DIR/ios/Pods/fmt/include/fmt/base.h"
 
-          LATEST=$(
-            app-store-connect get-latest-build-number \
-              "$BUNDLE_ID" \
-              2>/dev/null || echo "0"
-          )
+          echo "=========================================="
+          echo "Checking fmt"
+          echo "=========================================="
 
-          echo "Latest App Store build number: $LATEST"
+          if [ ! -f "$FMT_BASE" ]; then
+            echo "fmt/base.h not found."
+            exit 0
+          fi
 
-          NEW_BUILD=$((LATEST + 1))
+          cp "$FMT_BASE" "$FMT_BASE.backup"
 
-          echo "New build number: $NEW_BUILD"
+          python3 <<'PY'
+          from pathlib import Path
 
-          cd "$CM_BUILD_DIR/ios"
+          path = Path("ios/Pods/fmt/include/fmt/base.h")
 
-          agvtool new-version -all "$NEW_BUILD"
+          text = path.read_text()
+
+          original = text
+
+          replacements = [
+              (
+                  "#  define FMT_USE_CONSTEVAL 1",
+                  "#  define FMT_USE_CONSTEVAL 0"
+              ),
+              (
+                  "#define FMT_USE_CONSTEVAL 1",
+                  "#define FMT_USE_CONSTEVAL 0"
+              ),
+          ]
+
+          for old, new in replacements:
+              text = text.replace(old, new)
+
+          if text != original:
+              path.write_text(text)
+              print("FMT_USE_CONSTEVAL disabled.")
+          else:
+              print("No FMT_USE_CONSTEVAL change was necessary.")
+          PY
+
+          echo ""
+          grep -n "FMT_USE_CONSTEVAL" \
+            "$FMT_BASE" || true
 
 
-      # ==========================================
-      # Set up iOS code signing
-      # ==========================================
+      # ==========================================================
+      # 6. Configure Google Maps API Key
+      # ==========================================================
+
+      - name: Set Google Maps API Key
+        script: |
+          set -e
+
+          INFO_PLIST="$CM_BUILD_DIR/ios/ToutRoutesApp/Info.plist"
+
+          /usr/libexec/PlistBuddy \
+            -c "Delete :GMSApiKey" \
+            "$INFO_PLIST" 2>/dev/null || true
+
+          /usr/libexec/PlistBuddy \
+            -c "Add :GMSApiKey string AIzaSyC09p4-3IhSac_zt_2C_fd-ML8kFaRAXes" \
+            "$INFO_PLIST"
+
+          echo "Google Maps API key configured."
+
+
+      # ==========================================================
+      # 7. Set up iOS code signing
+      # ==========================================================
+
       - name: Set up iOS code signing
         script: |
           set -e
 
           xcode-project use-profiles \
-            --project "$CM_BUILD_DIR/ios/ToutApp.xcodeproj"
+            --project "$CM_BUILD_DIR/ios/ToutRoutesApp.xcodeproj"
 
 
-      # ==========================================
-      # Verify iOS signing
-      # ==========================================
+      # ==========================================================
+      # 8. Verify signing
+      # ==========================================================
+
       - name: Verify iOS signing
         script: |
           set -e
@@ -149,48 +561,96 @@ workflows:
 
           echo ""
           echo "=========================================="
+          echo "PROVISIONING PROFILES"
+          echo "=========================================="
+
+          find "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            -type f \
+            -maxdepth 1 \
+            -print || true
+
+          echo ""
+          echo "=========================================="
           echo "SIGNING SETTINGS"
           echo "=========================================="
 
           xcodebuild \
-            -project "$CM_BUILD_DIR/ios/ToutApp.xcodeproj" \
+            -project "$CM_BUILD_DIR/ios/ToutRoutesApp.xcodeproj" \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -showBuildSettings | \
             grep -E \
-            "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE|CODE_SIGN_IDENTITY" \
+            "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE|CODE_SIGN_IDENTITY|ASSETCATALOG_COMPILER_APPICON_NAME" \
             || true
 
 
-      # ==========================================
-      # Verify Xcode Workspace
-      # ==========================================
+      # ==========================================================
+      # 9. Verify Xcode workspace
+      # ==========================================================
+
       - name: Verify Xcode workspace
         script: |
           set -e
 
-          if [ ! -d "$CM_BUILD_DIR/ios/ToutApp.xcworkspace" ]; then
-            echo "ERROR: ToutApp.xcworkspace was not found."
+          echo "=========================================="
+          echo "VERIFYING XCODE WORKSPACE"
+          echo "=========================================="
+
+          if [ ! -d "$CM_BUILD_DIR/ios/ToutRoutesApp.xcworkspace" ]; then
+            echo "ERROR: Xcode workspace not found."
             exit 1
           fi
 
-          echo "ToutApp.xcworkspace exists."
+          if [ ! -f "$CM_BUILD_DIR/ios/ToutRoutesApp.xcodeproj/project.pbxproj" ]; then
+            echo "ERROR: Xcode project not found."
+            exit 1
+          fi
+
+          if [ ! -d "$CM_BUILD_DIR/ios/ToutRoutesApp/Images.xcassets/AppIcon.appiconset" ]; then
+            echo "ERROR: AppIcon.appiconset not found."
+            exit 1
+          fi
+
+          if [ ! -f "$CM_BUILD_DIR/ios/ToutRoutesApp/Images.xcassets/AppIcon.appiconset/AppIcon-60@2x.png" ]; then
+            echo "ERROR: Required 120x120 icon not found."
+            exit 1
+          fi
+
+          echo "Workspace OK."
+          echo "Project OK."
+          echo "AppIcon OK."
 
 
-      # ==========================================
-      # Build iOS Release IPA
-      # ==========================================
+      # ==========================================================
+      # 10. Build IPA
+      # ==========================================================
+
       - name: Build iOS release IPA
         script: |
           set -e
 
           cd "$CM_BUILD_DIR"
 
+          echo "=========================================="
+          echo "BUILDING IOS IPA"
+          echo "=========================================="
+
           xcode-project build-ipa \
             --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME" \
             --config Release
 
+          echo ""
+          echo "=========================================="
+          echo "IPA BUILD COMPLETED"
+          echo "=========================================="
+
+          ls -lh build/ios/ipa/
+
+
+    # ==========================================================
+    # ARTIFACTS
+    # ==========================================================
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -199,10 +659,17 @@ workflows:
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
 
 
+    # ==========================================================
+    # PUBLISHING
+    # ==========================================================
+
     publishing:
       app_store_connect:
         auth: integration
 
         submit_to_testflight: true
+
+        beta_groups:
+          - Internal Testers
 
         submit_to_app_store: false
