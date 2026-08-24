@@ -1,0 +1,56 @@
+# Tout (passenger app) iOS build workflow.
+# Supply Apple signing/API credentials and optional map key in Codemagic UI.
+workflows:
+  ios-release:
+    name: Tout iOS Release
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: $BUNDLE_ID
+      vars:
+        XCODE_PROJECT: ios/ToutApp.xcodeproj
+        XCODE_SCHEME: ToutApp
+        BUNDLE_ID: com.toutroutes.passenger
+      node: 18.20.0
+      xcode: latest
+      cocoapods: default
+
+    scripts:
+      - name: Install JavaScript dependencies
+        script: npm install --legacy-peer-deps
+
+      - name: Install CocoaPods
+        script: cd ios && pod install --repo-update
+
+      - name: Configure optional Google Maps key
+        script: |
+          if [ -n "${GOOGLE_MAPS_API_KEY:-}" ]; then
+            /usr/libexec/PlistBuddy -c "Set :GMSApiKey $GOOGLE_MAPS_API_KEY" ios/ToutApp/Info.plist || \
+            /usr/libexec/PlistBuddy -c "Add :GMSApiKey string $GOOGLE_MAPS_API_KEY" ios/ToutApp/Info.plist
+          fi
+
+      - name: Set build number
+        script: |
+          LATEST=$(app-store-connect get-latest-build-number "$BUNDLE_ID" 2>/dev/null || echo "0")
+          agvtool new-version -all $((LATEST + 1))
+
+      - name: Build signed IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --config Release
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false
