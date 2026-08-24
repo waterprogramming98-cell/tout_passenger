@@ -8,18 +8,31 @@ def node_require(script)
         {paths: [process.argv[1]]},
       )",
       __dir__
-    ].join
+    ]
   ).strip
 end
 
 node_require('react-native/scripts/react_native_pods.rb')
+node_require('react-native-permissions/scripts/setup.rb')
+
+# ============================================================
+# iOS
+# ============================================================
 
 platform :ios, '18.0'
 
 prepare_react_native_project!
 
 # ============================================================
-# Firebase / React Native
+# React Native Firebase
+#
+# Static frameworks.
+#
+# IMPORTANT:
+# Do NOT use:
+# use_modular_headers!
+#
+# Do NOT manually add Firebase modular_headers.
 # ============================================================
 
 use_frameworks! :linkage => :static
@@ -27,30 +40,27 @@ use_frameworks! :linkage => :static
 $RNFirebaseAsStaticFramework = true
 
 # ============================================================
+# React Native Permissions
+# ============================================================
+
+setup_permissions([
+  'Camera',
+  'FaceID',
+  'LocationAccuracy',
+  'LocationAlways',
+  'LocationWhenInUse',
+  'Notifications',
+  'PhotoLibrary',
+  'PhotoLibraryAddOnly',
+])
+
+# ============================================================
 # Main Target
 # ============================================================
 
-target 'ToutApp' do
+target 'ToutRoutesApp' do
 
   config = use_native_modules!
-
-  # ==========================================================
-  # Firebase dependencies
-  #
-  # Required when Firebase Swift pods are linked statically.
-  # ==========================================================
-
-  pod 'FirebaseAuthInterop',
-    :modular_headers => true
-
-  pod 'FirebaseAppCheckInterop',
-    :modular_headers => true
-
-  pod 'GoogleUtilities',
-    :modular_headers => true
-
-  pod 'RecaptchaInterop',
-    :modular_headers => true
 
   # ==========================================================
   # React Native
@@ -81,17 +91,26 @@ target 'ToutApp' do
 
       target.build_configurations.each do |build_config|
 
+        # ----------------------------------------------------
         # iOS 18
+        # ----------------------------------------------------
+
         build_config.build_settings[
           'IPHONEOS_DEPLOYMENT_TARGET'
         ] = '18.0'
 
+        # ----------------------------------------------------
         # Xcode 26
+        # ----------------------------------------------------
+
         build_config.build_settings[
           'SWIFT_ENABLE_EXPLICIT_MODULES'
         ] = 'NO'
 
-        # Prevent non-modular include errors
+        # ----------------------------------------------------
+        # Avoid non-modular include errors
+        # ----------------------------------------------------
+
         build_config.build_settings[
           'CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'
         ] = 'NO'
@@ -101,7 +120,7 @@ target 'ToutApp' do
     end
 
     # ========================================================
-    # React Native 0.81 C++ pods
+    # React Native C++ pods
     # ========================================================
 
     react_native_cpp_pods = [
@@ -149,39 +168,9 @@ target 'ToutApp' do
     end
 
     # ========================================================
-    # fmt
-    #
-    # Keep fmt on C++17.
-    # ========================================================
-
-    fmt_target = installer.pods_project.targets.find do |target|
-      target.name == 'fmt'
-    end
-
-    if fmt_target
-
-      fmt_target.build_configurations.each do |build_config|
-
-        build_config.build_settings[
-          'IPHONEOS_DEPLOYMENT_TARGET'
-        ] = '18.0'
-
-        build_config.build_settings[
-          'CLANG_CXX_LANGUAGE_STANDARD'
-        ] = 'c++17'
-
-        build_config.build_settings[
-          'CLANG_CXX_LIBRARY'
-        ] = 'libc++'
-
-      end
-
-    end
-
-    # ========================================================
     # gRPC
     #
-    # Keep gRPC on C++17.
+    # Do NOT use modular headers.
     # ========================================================
 
     [
@@ -209,44 +198,102 @@ target 'ToutApp' do
           'CLANG_CXX_LIBRARY'
         ] = 'libc++'
 
+        build_config.build_settings[
+          'DEFINES_MODULE'
+        ] = 'NO'
+
+        build_config.build_settings[
+          'CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'
+        ] = 'YES'
+
       end
 
     end
 
     # ========================================================
-    # Firebase modular dependencies
+    # fmt 11.0.2 + Xcode 26.4
+    #
+    # Fix:
+    # call to consteval function ... is not a constant expression
     # ========================================================
 
-    firebase_modular_pods = [
-      'FirebaseAuthInterop',
-      'FirebaseAppCheckInterop',
-      'GoogleUtilities',
-      'RecaptchaInterop'
-    ]
+    fmt_base = File.join(
+      installer.sandbox.root,
+      'fmt',
+      'include',
+      'fmt',
+      'base.h'
+    )
 
-    firebase_modular_pods.each do |pod_name|
+    if File.exist?(fmt_base)
 
-      target = installer.pods_project.targets.find do |t|
-        t.name == pod_name
+      content = File.read(fmt_base)
+
+      marker = '// Xcode 26.4 fmt consteval workaround'
+
+      unless content.include?(marker)
+
+        patched = content.gsub(
+          /^#\s*define FMT_USE_CONSTEVAL 1$/,
+          "#{marker}\n#  define FMT_USE_CONSTEVAL 0"
+        )
+
+        if patched != content
+
+          File.chmod(0644, fmt_base)
+
+          File.write(
+            fmt_base,
+            patched
+          )
+
+          puts "=========================================="
+          puts "fmt workaround applied"
+          puts "=========================================="
+
+        else
+
+          puts "WARNING: fmt FMT_USE_CONSTEVAL was not found."
+
+        end
+
+      else
+
+        puts "fmt workaround already applied."
+
       end
 
-      next unless target
+    else
 
-      target.build_configurations.each do |build_config|
+      puts "WARNING: fmt/base.h not found."
 
-        build_config.build_settings[
-          'DEFINES_MODULE'
-        ] = 'YES'
+    end
 
-        build_config.build_settings[
-          'CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'
-        ] = 'NO'
+    # ========================================================
+    # Main application target
+    # ========================================================
 
-        build_config.build_settings[
-          'IPHONEOS_DEPLOYMENT_TARGET'
-        ] = '18.0'
+    installer.aggregate_targets.each do |aggregate_target|
+
+      user_project = aggregate_target.user_project
+
+      next unless user_project
+
+      user_project.native_targets.each do |target|
+
+        next unless target.name == 'ToutRoutesApp'
+
+        target.build_configurations.each do |build_config|
+
+          build_config.build_settings[
+            'IPHONEOS_DEPLOYMENT_TARGET'
+          ] = '18.0'
+
+        end
 
       end
+
+      user_project.save
 
     end
 
