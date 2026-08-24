@@ -1,19 +1,20 @@
-def node_require(script)
-  require Pod::Executable.execute_command(
-    'node',
-    [
-      '-p',
-      "require.resolve(
-        '#{script}',
-        {paths: [process.argv[1]]},
-      )",
-      __dir__
-    ].join("\n")
-  )
-end
+require Pod::Executable.execute_command(
+  'node',
+  [
+    '-p',
+    'require.resolve("react-native/scripts/react_native_pods.rb", {paths: [process.argv[1]]})',
+    __dir__
+  ]
+)
 
-node_require('react-native/scripts/react_native_pods.rb')
-node_require('react-native-permissions/scripts/setup.rb')
+require Pod::Executable.execute_command(
+  'node',
+  [
+    '-p',
+    'require.resolve("react-native-permissions/scripts/setup.rb", {paths: [process.argv[1]]})',
+    __dir__
+  ]
+)
 
 # ============================================================
 # iOS
@@ -234,7 +235,7 @@ target 'ToutApp' do
       unless content.include?(marker)
 
         patched = content.gsub(
-          /^\s*#\s*define FMT_USE_CONSTEVAL 1$/,
+          /^#\s*define FMT_USE_CONSTEVAL 1$/,
           "#{marker}\n#  define FMT_USE_CONSTEVAL 0"
         )
 
